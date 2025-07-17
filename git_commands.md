@@ -36,12 +36,19 @@ git commit -m "Initial commit"
 
 ---
 
+### **Github account add**
+
+```bash
+ git config --global user.email "harshithreddy18@gmail.com"
+ git config --global user.name "HarshithR7"
+
+```
 #### 5. **Add the remote**
 
 (Only do this once)
 
 ```bash
-git remote set-url origin https://github.com/HarshithR7/32_MIPS.git
+git remote set-url origin https://github.com/HarshithR7/32_MIPS.git  // if already 
 
 or
 git remote add origin https://github.com/HarshithR7/32bit_mips_processor.git
