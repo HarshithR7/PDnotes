@@ -65,37 +65,28 @@ git push -u origin main
 
 ✅ Step-by-Step to Recover the Lost Work
 🔍 1. Check the commit you made before the pull
-Run:
-
-bash
-Copy
-Edit
+```bash
 git reflog
+```
 Look for a line like:
-
-pgsql
-Copy
-Edit
-abc1234 HEAD@{1}: commit: WIP: local changes before rebase
+```bash
+> abc1234 HEAD@{1}: commit: WIP: local changes before rebase
+```
 That abc1234 is the commit hash of your lost work. It’s still in your Git object database!
 
 🔄 2. Recover that commit
 To restore your lost files to your working directory, run:
-
-bash
-Copy
-Edit
+```bash
 git checkout abc1234
+```
 (Replace abc1234 with the actual hash you saw in reflog)
 
 This will switch your working directory to that commit, and all your files should be back.
 
 💾 3. Create a new branch to save the recovered state (highly recommended)
 To avoid losing this again:
-
-bash
-Copy
-Edit
+```bash
 git checkout -b recovered-wip
+```
 Now you're on a safe branch with your recovered changes.
 
