@@ -48,10 +48,13 @@ git commit -m "Initial commit"
 (Only do this once)
 
 ```bash
-git remote set-url origin https://github.com/HarshithR7/32_MIPS.git  // if already 
-
-or
 git remote add origin https://github.com/HarshithR7/32bit_mips_processor.git
+```
+or
+
+```bash
+ // if already remote origin exists
+git remote set-url origin https://github.com/HarshithR7/32_MIPS.git 
 ```
 
 ---
