@@ -1,0 +1,1 @@
+Link of package pins - https://www.amd.com/en/developer/resources/adaptive-socs-and-fpgas/package-pinout-files/zynq-7000-package-device-pinout-files.html

@@ -1,0 +1,321 @@
+Open an Interactive shell by typing yosys
+* `read_verilog -D ICE40_HX -lib -specify +/ice40/cells_sim.v`  - loads the iCE40 cell models which allows us to include platform specific IP blocks in our design.
+
+* Loading the design  and parses code into an Abstract syntax tree(AST)- `yosys fifo.v` or
+* read_verilog -defer designs/second_test/src/processor.v. The -defer option there tells read_verilog only read the abstract syntax tree and defer actual compilation to a later hierarchy command. 
+This is useful in cases where the default parameters of modules yield invalid code which is not synthesizable. 
+* read_verilog designs/second_test/src/processor.v
+https://yosyshq.readthedocs.io/projects/yosys/en/latest/yosys_internals/flow/verilog_frontend.html
+"Parsing Verilog input from `designs/second_test/src/processor.v' to AST representation.
+Generating RTLIL representation for module `\mips_processor'.
+Successfully finished Verilog frontend."
+design -reset
+
+
+# Elaborate
+
+* `hierarchy -check -top mips_processor - declare a top level module , discard remaining .
+By passing the -check option there we are also telling the hierarchy command that if the design includes any non-blackbox modules without an implementation it should return an error.
+"11. Executing HIERARCHY pass (managing design hierarchy).
+
+11.1. Analyzing design hierarchy..
+Top module:  \mips_processor
+
+11.2. Analyzing design hierarchy..
+Top module:  \mips_processor
+Removed 0 unused modules."
+
+*`proc` -  these sub-commands work to convert the behavioral logic of processes into multiplexers and registers. we also use `proc -noopt` to prevent some automatic optimizations.
+"12. Executing PROC pass (convert processes to netlists).
+12.1. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Executing PROC_RMDEAD pass (remove dead branches from decision trees).
+12.3. Executing PROC_PRUNE pass (remove redundant assignments in processes).
+Executing PROC_INIT pass (extract init attributes).
+Executing PROC_ARST pass (detect async resets in processes).
+Executing PROC_ROM pass (convert switches to ROMs).
+Executing PROC_MUX pass (convert decision trees to multiplexers).
+ Executing PROC_DLATCH pass (convert process syncs to latches).
+12.10. Executing PROC_MEMWR pass (convert process memory writes to cells).
+12.11. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+12.12. Executing OPT_EXPR pass (perform const folding).
+"
+
+
+* intial block is not synthesizable so we use `opt_expr;clean`
+# Flattening
+`flatten` - Flattening the design like this can allow for optimizations between modules which would otherwise be missed.
+`tribuf -logic`- tribuf with the -logic option and deminout. These remove tristate and inout constructs respectively, replacing them with logic suitable for mapping to an FPGA
+`deminout`    - 16. Executing DEMINOUT pass (demote inout ports to input or output).
+
+# Coarse- Grain Representation
+This is the stage of synthesis where we do things like const propagation, expression rewriting, and trimming unused parts of wires.
+* Part1
+opt_expr
+opt_clean - Executing OPT_CLEAN pass (remove unused cells and wires).
+check   - reports all the problems
+opt -nodffe -nosdff         - performs a set of optimizations -  Executing OPT pass (performing simple optimizations).
+
+20.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module mips_processor.
+
+20.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\mips_processor'.
+Removed a total of 0 cells.
+
+20.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \mips_processor..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~1 debug messages>
+
+20.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \mips_processor.
+Performed a total of 0 changes.
+
+20.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\mips_processor'.
+Removed a total of 0 cells.
+
+20.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+20.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \mips_processor..
+
+20.8. Executing OPT_EXPR pass (perform const folding).""
+
+fsm
+
+"
+21. Executing FSM pass (extract and optimize FSM).
+
+21.1. Executing FSM_DETECT pass (finding FSMs in design).
+
+21.2. Executing FSM_EXTRACT pass (extracting FSM from design).
+
+21.3. Executing FSM_OPT pass (simple optimizations of FSMs).
+
+21.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \mips_processor..
+
+21.5. Executing FSM_OPT pass (simple optimizations of FSMs).
+
+21.6. Executing FSM_RECODE pass (re-assigning FSM state encoding).
+
+21.7. Executing FSM_INFO pass (dumping all available information on FSM cells).
+
+21.8. Executing FSM_MAP pass (mapping FSMs to basic logic)."
+opt
+opt_dff        - converted a mux to dff -  Executing OPT_DFF pass (perform DFF optimizations).
+
+*Part2 - a series of optimizations
+wreduce    - reduce word size of operations if possible -  Executing OPT_DFF pass (perform DFF optimizations).
+peepopt - 2. Executing PEEPOPT pass (run peephole optimizers).
+opt_clean
+share   4. Executing SHARE pass (SAT-based resource sharing).
+techmap -map +/cmp2lut.v -D LUT_WIDTH=4       -Executing TECHMAP pass (map to technology primitives).
+opt_expr
+opt_clean  - remove unused cells and wires
+memory_dff [-no-rw-check]      - merging $dff cells to $memrd ports
+peepopt - collection of peephole optimizers
+share - perform sat-based resource sharing.
+techmap -map +/cmp2lut.v -D LUT_WIDTH=4         - optimizes certain comparision operators by converting them to LUTs https://yosyshq.readthedocs.io/projects/yosys/en/latest/using_yosys/synthesis/techmap_synth.html
+
+*Part3 - a series of commands for mapping to DSPs
+
+wreduce t:$mul
+techmap -map +/mul2dsp.v -map +/ice40/dsp_map.v -D DSP_A_MAXWIDTH=16 -D DSP_B_MAXWIDTH=16 -D DSP_A_MINWIDTH=2 -D DSP_B_MINWIDTH=2 -D DSP_Y_MINWIDTH=11 -D DSP_NAME=$__MUL16X16    (if -dsp)
+select a:mul2dsp                  (if -dsp)
+setattr -unset mul2dsp            (if -dsp)
+opt_expr -fine                    (if -dsp)
+wreduce                           (if -dsp)
+select -clear                     (if -dsp)
+ice40_dsp                         (if -dsp)
+chtype -set $mul t:$__soft_mul    (if -dsp)
+
+* Part4 - Final synthesis flow
+alumacc  - create alu and macc cells
+opt
+memory -nomap [-no-rw-check]
+memory_collect - combines all of the reads and writes for a memory block into a single cell.Executing MEMORY_COLLECT pass (generating $mem cells).
+opt_clean
+
+* Final note
+synth_ice40 -top fifo -run :map_ram    - after loading the design. 
+The -run <from_label>:<to_label> option with an empty <from_label> starts from the begin section, while the <to_label> runs up to but including the map_ram section.
+
+# Memory Blocks - maping to hard memory blocks use a combination of memory_libmap and techmap
+memory_libmap -lib +/ice40/brams.txt -lib +/ice40/spram.txt [-no-auto-huge] [-no-auto-block]    (-no-auto-huge unless -spram, -no-auto-block if -nobram)
+- mapping memories to cells
+techmap -map +/ice40/brams_map.v -map +/ice40/spram_map.v
+-The $__ICE40_RAM4K_ cell is defined in the file techlibs/ice40/brams.txt, with the mapping to SB_RAM40_4K done by techmap using techlibs/ice40/brams_map.v.
+Any leftover memory cells are then converted into flip flops (the logic fallback) with memory_map.
+
+ice40_braminit
+
+opt -fast -mux_undef -undriven -fine
+memory_map
+opt -undriven -fine
+
+ice40_wrapcarry
+techmap -map +/techmap.v -map +/ice40/arith_map.v    - to map basic arithmetic logic to hardware
+- This sees somewhat of an explosion in cells as multi-bit $mux and $adffe are replaced with single-bit $_MUX_ and $_DFFE_PP0P_ cells, while the $alu is replaced with primitive $_OR_ and $_NOT_ gates and a $lut cell
+opt -fast
+abc -dff -D 1    (only if -retime)
+ice40_opt
+
+dfflegalize -cell $_DFF_?_ 0 -cell $_DFFE_?P_ 0 -cell $_DFF_?P?_ 0 -cell $_DFFE_?P?P_ 0 -cell $_SDFF_?P?_ 0 -cell $_SDFFCE_?P?P_ 0 -cell $_DLATCH_?_ x -mince -1
+techmap -map +/ice40/ff_map.v
+opt_expr -mux_undef
+simplemap
+ice40_opt -full
+* Convert FFs to the types supported in hardware with dfflegalize, and then use techmap to map them. In our example, this converts the $_DFFE_PP0P_ cells to SB_DFFER.
+We also run simplemap here to convert any remaining cells which could not be mapped to hardware into gate-level primitives. This includes optimizing $_MUX_ cells where one of the inputs is a constant 1'0, replacing it instead with an $_AND_ cell.
+
+# LUTs
+abc and techmap are used to map LUTs; converting primitive cell types to use $lut and SB_CARRY cells. Note that the iCE40 flow uses abc9 rather than abc. For more on what these do, and what the difference between these two commands are, refer to The ABC toolbox.
+
+Listing 20
+map_luts section
+abc          (only if -abc2)
+ice40_opt    (only if -abc2)
+techmap -map +/ice40/latches_map.v
+simplemap                                   (if -noabc or -flowmap)
+techmap -map +/gate2lut.v -D LUT_WIDTH=4    (only if -noabc)
+flowmap -maxlut 4    (only if -flowmap)
+read_verilog -D ICE40_HX -icells -lib -specify +/ice40/abc9_model.v
+abc9  -W 250
+ice40_wrapcarry -unwrap
+techmap -map +/ice40/ff_map.v
+clean
+opt_lut -tech ice40
+
+#Finally we use techmap to map the generic $lut cells to iCE40 SB_LUT4 cells.
+
+map_cells section
+techmap -map +/ice40/cells_map.v    (skip if -vpr)
+clean
+
+Other cells
+The following commands may also be used for mapping other cells:
+
+hilomap -Executing HILOMAP pass (mapping to constant drivers).
+Some architectures require special driver cells for driving a constant hi or lo value. This command replaces simple constants with instances of such driver cells.
+
+iopadmap  -  Executing IOPADMAP pass (mapping inputs/outputs to IO-PAD cells).
+Top-level input/outputs must usually be implemented using special I/O-pad cells. This command inserts such cells to the design.
+
+These commands tend to either be in the map_cells section or after the check section depending on the flow.
+
+
+Final steps
+The next section of the iCE40 synth flow performs some sanity checking and final tidy up:
+
+Listing 22
+check section
+autoname
+hierarchy -check
+stat
+check -noinit
+blackbox =A:whitebox
+The new commands here are:
+
+autoname - automatically assign names to objects,
+
+stat - print some statistics, and
+
+blackbox - convert modules into blackbox modules.
+
+The output from stat is useful for checking resource utilization; providing a list of cells used in the design and the number of each, as well as the number of other resources used such as wires and processes. For this design, the final call to stat should look something like the following:
+
+ stat -top fifo
+
+17. Printing statistics.
+
+=== fifo ===
+
+   Number of wires:                 95
+   Number of wire bits:            262
+   Number of public wires:          95
+   Number of public wire bits:     262
+   Number of ports:                  7
+   Number of port bits:             29
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                138
+     $scopeinfo                      2
+     SB_CARRY                       26
+     SB_DFF                         26
+     SB_DFFER                       25
+     SB_LUT4                        58
+     SB_RAM40_4K                     1
+Note that the -top fifo here is optional. stat will automatically use the module with the top attribute set, which fifo was when we called hierarchy. If no module is marked top, then stats will be shown for each module selected.
+
+The stat output is also useful as a kind of sanity-check: Since we have already run proc, we wouldn’t expect there to be any processes. We also expect data to use hard memory; if instead of an SB_RAM40_4K saw a high number of flip-flops being used we might suspect something was wrong.
+
+If we instead called stat immediately after read_verilog fifo.v we would see something very different:
+
+ stat
+
+2. Printing statistics.
+
+=== fifo ===
+
+   Number of wires:                 28
+   Number of wire bits:            219
+   Number of public wires:           9
+   Number of public wire bits:      45
+   Number of ports:                  7
+   Number of port bits:             29
+   Number of memories:               1
+   Number of memory bits:         2048
+   Number of processes:              3
+   Number of cells:                  9
+     $add                            1
+     $logic_and                      2
+     $logic_not                      2
+     $memrd                          1
+     $sub                            1
+     addr_gen                        2
+
+=== addr_gen ===
+
+   Number of wires:                  8
+   Number of wire bits:             60
+   Number of public wires:           4
+   Number of public wire bits:      11
+   Number of ports:                  4
+   Number of port bits:             11
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              2
+   Number of cells:                  2
+     $add                            1
+     $eq                             1
+Notice how fifo and addr_gen are listed separately, and the statistics for fifo show 2 addr_gen modules. Because this is before the memory has been mapped, we also see that there is 1 memory with 2048 memory bits; matching our 8-bit wide data memory with 256 values (
+).
+
+Synthesis output
+The iCE40 synthesis flow has the following output modes available:
+
+write_blif - write design to BLIF file,
+
+write_edif - write design to EDIF netlist file, and
+
+read_liberty -lib your_library.lib
+ abc -liberty liberty.py
+# do the technology mapping and abc mapping and write json file
+dffunmap; techmap; abc -liberty your_tech.lib  abc -liberty liberty.py
+"3. Executing DFFUNMAP pass (unmap clock enable and synchronous reset from FFs).
+4. Executing TECHMAP pass (map to technology primitives)."
+
+write_json second.json
+write_json - write design to a JSON file.
+
+As an example, if we called synth_ice40 -top fifo -json fifo.json, our synthesized fifo design will be output as fifo.json. We can then read the design back into Yosys with read_json, but make sure you use design -reset or open a new interactive terminal first. 
+The JSON output we get can also be loaded into nextpnr to do place and route; but that is beyond the scope of this documentation.
+
+
+Advanced synthesis - https://yosyshq.readthedocs.io/projects/yosys/en/latest/using_yosys/synthesis/index.html

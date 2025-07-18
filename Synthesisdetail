@@ -1,0 +1,132 @@
+# Target specific synthesis commands
+synth_achronix - synthesis for Achronix Speedster22i FPGAs.
+synth_anlogic - synthesis for Anlogic FPGAs
+synth_coolrunner2 - synthesis for Xilinx Coolrunner-II CPLDs
+synth_easic - synthesis for eASIC platform
+synth_ecp5 - synthesis for ECP5 FPGAs
+synth_efinix - synthesis for Efinix FPGAs
+synth_fabulous - FABulous synthesis script
+synth_gatemate - synthesis for Cologne Chip GateMate FPGAs
+synth_gowin - synthesis for Gowin FPGAs
+synth_greenpak4 - synthesis for GreenPAK4 FPGAs
+synth_ice40 - synthesis for iCE40 FPGAs
+synth_intel - synthesis for Intel (Altera) FPGAs. (MAX10, Cyclone IV)
+synth_intel_alm - synthesis for ALM-based Intel (Altera) FPGAs. (Cyclone V, Arria V, Cyclone 10 GX)
+synth_lattice - synthesis for Lattice FPGAs
+synth_nexus - synthesis for Lattice Nexus FPGAs
+synth_quicklogic - Synthesis for QuickLogic FPGAs
+synth_sf2 - synthesis for SmartFusion2 and IGLOO2 FPGAs
+synth_xilinx - synthesis for Xilinx FPGAs
+
+# prep -generic synthesis script
+the following commands are executed 
+begin:
+    hierarchy -check [-top <top> | -auto-top]
+
+coarse:
+    proc [-ifx]
+    flatten    (if -flatten)
+    future
+    opt_expr -keepdc
+    opt_clean
+    check
+    opt -noff -keepdc
+    wreduce -keepdc [-memx]
+    memory_dff    (if -rdff)
+    memory_memx    (if -memx)
+    opt_clean
+    memory_collect
+    opt -noff -keepdc -fast
+
+check:
+    stat
+    check
+
+
+# Converting process blocks
+The Verilog frontend converts always-blocks to RTL netlists for the expressions and “processess” for the control- and memory elements. The proc command then transforms these “processess” to netlists of RTL multiplexer and register cells. It also is a macro command that calls the other proc_* commands in a sensible order:
+
+Listing 25
+Passes called by proc
+proc_clean # removes empty branches and processes
+proc_rmdead # removes unreachable branches
+proc_prune
+proc_init # special handling of “initial” blocks
+proc_arst # identifies modeling of async resets
+proc_rom
+proc_mux # converts decision trees to multiplexer networks
+proc_dlatch
+proc_dff # extracts registers from processes
+proc_memwr
+proc_clean # this should remove all the processes, provided all went fine
+opt_expr -keepdc
+"The proc pass replaces processes in the design (such as always blocks) with equivalent netlist components like $dff (flip-flops), $mux (multiplexers), and $dlatch (latches"
+
+# FSM Handling
+The fsm command identifies, extracts, optimizes (re-encodes), and re-synthesizes finite state machines
+# Identify and extract FSMs:
+fsm_detect
+fsm_extract
+
+# Basic optimizations:
+fsm_opt
+opt_clean
+fsm_opt
+
+# Expanding to nearby gate-logic (if called with -expand):
+fsm_expand
+opt_clean
+fsm_opt
+
+# Re-code FSM states (unless called with -norecode):
+fsm_recode
+
+# Print information about FSMs:
+fsm_info
+
+# Export FSMs in KISS2 file format (if called with -export):
+fsm_export
+
+# Map FSMs to RTL cells (unless called with -nomap):
+fsm_map
+
+# Memory Handling
+The memory command
+In the RTL netlist, memory reads and writes are individual cells. This makes consolidating the number of ports for a memory easier. The memory pass transforms memories to an implementation. Per default that is logic for address decoders and registers. It also is a macro command that calls the other common memory_* passes in a sensible order:
+
+Listing 33
+Passes called by memory
+opt_mem
+opt_mem_priority
+opt_mem_feedback
+memory_bmux2rom
+memory_dff
+opt_clean
+memory_share
+opt_mem_widen
+memory_memx                         (when called with -memx)
+opt_clean
+memory_collect
+memory_bram -rules <bram_rules>     (when called with -bram)
+memory_map                          (skipped if called with -nomap)
+Some quick notes:
+
+memory_dff merges registers into the memory read- and write cells.
+
+memory_collect collects all read and write cells for a memory and transforms them into one multi-port memory cell.
+
+memory_map takes the multi-port memory cell and transforms it to address decoder logic and registers.
+
+# memory mapping
+Memory mapping
+Usually it is preferred to use architecture-specific RAM resources for memory. For example:
+
+memory -nomap
+memory_libmap -lib my_memory_map.txt
+techmap -map my_memory_map.v
+memory_map
+memory_libmap attempts to convert memory cells ($mem_v2 etc) into hardware supported memory using a provided library (my_memory_map.txt in the example above). 
+Where necessary, emulation logic is added to ensure functional equivalence before and after this conversion. techmap -map my_memory_map.v then uses techmap to map to hardware primitives. Any leftover memory cells unable to be converted are then picked up by memory_map and mapped to DFFs and address decoders.
+
+
+
